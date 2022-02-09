@@ -32,3 +32,16 @@ Your implement in AgOpenGPS must be set to use 8 sections divided equally across
 You will need to make sure the total working width matches that set in AgOpenGPS.
 
 Under `menu/speed input`, set it to  `Serial / RS232 input`
+
+
+## TODO
+I anticipate almost completely re-writing this code over the next few weeks to streamline the data flow, improve reliability and usability.
+
+Particularly:
+
+- Config file to store COM port information
+- Avoid the clumsy and slow data manipulations currently in use
+- Validation of CRC from AOG PGNs
+- Validation of acknowledgements from TOTZ
+- Implement variable rate control
+- Small GUI / web interface to make port selection easy, show debugging data
