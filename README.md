@@ -17,7 +17,7 @@ Available COM ports
 1 :  COM16
 2 :  COM24
 3 :  COM25
-Please select COM port (0, 1, 2,..):
+Please select COM port (0, 1, 2,..):1
 ```
 That's it!
 
