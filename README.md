@@ -27,11 +27,17 @@ The script is now listening to all PGNs broadcast to port 8888 and is extracting
 
 Your implement in AgOpenGPS must be set to use 8 sections divided equally across the width of the machine.
 
+The distance back from the axle should be `distance from headstock to axle + 80cm`. Set turn on/off delays to `0`
+
+The Bogballe box will then calculate its own turn-on delay based on forward speed, number of sections active, etc.
+
 ### TOTZ/ZURF Setup
 
 You will need to make sure the total working width matches that set in AgOpenGPS.
 
 Under `menu/speed input`, set it to  `Serial / RS232 input`
+
+
 
 
 ## TODO
