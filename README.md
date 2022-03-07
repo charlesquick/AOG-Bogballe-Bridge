@@ -9,7 +9,7 @@ The code is currently an initial proof-of-concept hacked together in less than 2
 
 You will need a USB -> RS232 adapter and null modem cable to connect to the port on TOTZ/ZURF.
 
-Ensure your computer has python installed with the pySerial module. You may need to run `pip install pyserial` in your python console.
+Ensure your computer has python installed with the pySerial module. You may need to run `python -m pip install pyserial` in the command prompt
 
 Run main.py. You will be presented with a list of available COM ports - type in the index of the port you would like to use.
 
