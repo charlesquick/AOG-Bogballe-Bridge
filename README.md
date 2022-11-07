@@ -36,6 +36,11 @@ Your implement in AgOpenGPS must be set to use 8 sections divided equally across
 
 Enable UDP in AgIO, and if you don't already have an ethernet-based autosteer system, set the ip address to `127.0.0.1`
 
+The distance back from the axle should be `distance from headstock to axle + 80cm`. Set turn on/off delays to `0`
+
+The Bogballe box will then calculate its own turn-on delay based on forward speed, number of sections active, etc.
+
+
 #### NEW in Version 5.6.x
 
 You will not be able to set the IP address to `127.0.0.1` in AOG. Instead you will need to create a virtual loopback adapter as per [this guide] (https://consumer.huawei.com/en/support/content/en-us00693656/).
@@ -50,10 +55,6 @@ and create a new Dword `fMinimizeConnections` set to `0`
 
 
 
-
-The distance back from the axle should be `distance from headstock to axle + 80cm`. Set turn on/off delays to `0`
-
-The Bogballe box will then calculate its own turn-on delay based on forward speed, number of sections active, etc.
 
 ### TOTZ/ZURF Setup
 
