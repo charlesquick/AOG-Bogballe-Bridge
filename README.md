@@ -41,9 +41,12 @@ Enable UDP in AgIO, and if you don't already have an ethernet-based autosteer sy
 You will not be able to set the IP address to `127.0.0.1` in AOG. Instead you will need to create a virtual loopback adapter as per [this guide] (https://consumer.huawei.com/en/support/content/en-us00693656/).
 
 If you have a USB cell modem, the new virtual interface will take priority, despite it being non-routable. To fix this, open `regedit` and navigate to `HKEY_LOCAL_MACHINE\Software\Microsoft\Wcmsvc`
+
 Create a new Dword called `IgnoreNonRoutableEthernet` and set its value to `1`
 
-You may also need to go to `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\Local` and create a new Dword `fMinimizeConnections` set to `0`
+You may also need to go to `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\Local` 
+
+and create a new Dword `fMinimizeConnections` set to `0`
 
 
 
