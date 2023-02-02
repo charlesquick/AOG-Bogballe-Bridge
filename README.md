@@ -3,15 +3,14 @@
 
 This script listens to the autoSteerData and machineData PGNs emitted by AgOpenGPS and sends them over RS232 using the [Bogballe serial protocol](https://dam.bogballe.com/dmm3bwsv3/AssetStream.aspx?mediaformatid=10061&destinationid=10016&assetid=3488)
 
-The code is currently an initial proof-of-concept hacked together in less than 24 hours. It's probably not very reliable. The functionality is slightly different between the TOTZ and ZURF boxes, so please select the appropriate file.
 
 ## Instructions for use
 
 You will need a USB -> RS232 adapter and null modem cable to connect to the port on TOTZ/ZURF.
 
-Ensure your computer has python installed with the pySerial module.
+Ensure your computer has python installed.
 
-This script uses the libraries `configparser` and `pyserial`. You may need to run `python -m pip install -r requirements.txt` in the command prompt
+This script uses the libraries `configparser` and `pyserial`. You may need to run `python -m pip install -r requirements.txt` in the command prompt.
 
 Run `main.py`. You will be presented with a warning that your COM port does not exist yet.
 Click OK and you will see a list of available COM ports - type in the number of the port you would like to use.
