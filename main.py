@@ -8,17 +8,23 @@ localIP = ""
 localPort = 8888
 bufferSize = 1024
 UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+
+
 config = ConfigParser()
 config.read('config.ini')
+
 sections = [0, 0, 0, 0, 0, 0, 0, 0]
 speed = 0.0
 secnum = config.getint('main', 'secnum')
 secwidth = config.getint('main', 'secwidth')
 activeSections = 0
 activeSectionsLast = 0
+AOGversion = 0
 com = config.get('main', 'com')
 portExists = False
 validConf = True
+AgIOSaysHello = False
+socket_timeout = False
 
 
 def extractdata(input):
@@ -65,14 +71,20 @@ def extractdata(input):
             config.write(f)
         return
 
+    if (input[3:4].hex()) == 'c8':  # AgIO Hello PGN
+        global AgIOSaysHello, AOGversion
+        AOGversion = int(input[5:6].hex(), 16)
+        AgIOSaysHello = True
+        return
+
 
 def checksum(input):
     hexList = []
     for x in input:
-        hexList.append(hex(ord(x)))
+        hexList.append(hex(ord(x)))     # hex of the int of the character
     out = hexList[0]
     for i in range(1, len(hexList)):
-        out = hex(int(out, 16) ^ int(hexList[i], 16))
+        out = hex(int(out, 16) ^ int(hexList[i], 16))   # XOR the ints together in base16 then convert to hex
 
     if out == ("0x00" or "0x7b" or "0x7d"):
         out = "0x55"
@@ -182,12 +194,26 @@ def selectport():
         com = 'COM' + a
     return
 
+def getUDPdata():
+    try:
+        bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
+        message = bytesAddressPair[0]
+        address = bytesAddressPair[1]
+    except socket.timeout:
+        global speed, sections, activeSections, AgIOSaysHello, socket_timeout
+        speed = 0
+        sections = [0, 0, 0, 0, 0, 0, 0, 0]
+        activeSections = 0
+        AgIOSaysHello = False
+        socket_timeout = True
+        return
+
+    extractdata(message)
 
 # Setup
 UDPServerSocket.bind((localIP, localPort))
 print("CSEQ Technologies LTD")
-print("AOG-Bogballe Bridge")
-print("UDP server up and listening")
+print("AOG-Bogballe Bridge \n")
 listcom()
 if com == -1 or portExists is False:
     errmsg = "COM port does not exist! \nPlease check your wiring or select a valid COM port"
@@ -200,6 +226,7 @@ if com == -1 or portExists is False:
 
 print('Using ' + str(com))
 ser = serial.Serial(com, 9600, timeout=0.04)
+print("Serial port connected \n")
 if secnum == 0 or secnum > 8 or ((secnum % 2) != 0):
     errmsg = "Invalid section data! \nPlease re-load the vehicle file in AgOpenGPS"
     title = 'AOG-Bogballe Bridge'
@@ -210,18 +237,41 @@ if validConf:
     print("Using saved machine configuration:")
     print("     ", secnum, " sections, each", secwidth, " cm")
     print("     Total width:", secwidth / 100 * secnum)
-    print("Connection established. Forwarding data...")
+
+print("\nChecking connection to AgIO...")
+UDPServerSocket.settimeout(1)
+while not AgIOSaysHello:
+    getUDPdata()
+    if socket_timeout:
+        UDPServerSocket.settimeout(10)
+        print("Not connected to AgIO")
+        socket_timeout = False
+if AgIOSaysHello:
+    print("Connected to AgIO")
+    print("AgOpenGPS Version: ", AOGversion / 10)
+    if AOGversion < 57:
+        print("\nWARNING \nThis version of AgOpenGPS is not supported! Some features may not work as intended. "
+              "\nConsider upgrading to version 5.7 or newer." )
+UDPServerSocket.settimeout(1)
 
 try:
     while True:
-        bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-        message = bytesAddressPair[0]
-        address = bytesAddressPair[1]
-        extractdata(message)
+        getUDPdata()
         sendspeed()
         if validConf:
             sendenable()
             sendsections()
+        if socket_timeout:
+            print("Not connected to AgIO")
+            errmsg = "Lost Communication to AgIO!"
+            title = 'AOG-Bogballe Bridge'
+            ctypes.windll.user32.MessageBoxW(0, errmsg, title, 0x1000 | 0x30)
+            while not AgIOSaysHello:
+                getUDPdata()
+            if AgIOSaysHello:
+                print("Connected to AgIO")
+                socket_timeout = False
+
 
 except serial.serialutil.SerialException:
     ser.close()
