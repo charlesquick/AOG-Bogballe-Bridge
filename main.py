@@ -17,6 +17,7 @@ sections = [0, 0, 0, 0, 0, 0, 0, 0]
 speed = 0.0
 secnum = config.getint('main', 'secnum')
 secwidth = config.getint('main', 'secwidth')
+commsLostBehaviour = config.getint('main', 'CommsLostBehaviour')    # If true, stop spreader output on socket timeout
 activeSections = 0
 activeSectionsLast = 0
 AOGversion = 0
@@ -200,15 +201,27 @@ def getUDPdata():
         message = bytesAddressPair[0]
         address = bytesAddressPair[1]
     except socket.timeout:
-        global speed, sections, activeSections, AgIOSaysHello, socket_timeout
-        speed = 0
-        sections = [0, 0, 0, 0, 0, 0, 0, 0]
-        activeSections = 0
+        if not commsLostBehaviour:
+            global speed, sections, activeSections, AgIOSaysHello, socket_timeout
+            speed = 0
+            sections = [0, 0, 0, 0, 0, 0, 0, 0]
+            activeSections = 0
         AgIOSaysHello = False
         socket_timeout = True
         return
-
     extractdata(message)
+
+def flush_socket():
+    UDPServerSocket.setblocking(False)
+    while True:
+        try:
+            data = UDPServerSocket.recv(1024)
+            if not data:
+                break
+        except BlockingIOError:
+            UDPServerSocket.setblocking(True)
+            break
+
 
 # Setup
 UDPServerSocket.bind((localIP, localPort))
@@ -239,20 +252,23 @@ if validConf:
     print("     Total width:", secwidth / 100 * secnum)
 
 print("\nChecking connection to AgIO...")
-UDPServerSocket.settimeout(1)
+UDPServerSocket.settimeout(10)
 while not AgIOSaysHello:
     getUDPdata()
     if socket_timeout:
-        UDPServerSocket.settimeout(10)
         print("Not connected to AgIO")
         socket_timeout = False
+
+
+
 if AgIOSaysHello:
     print("Connected to AgIO")
     print("AgOpenGPS Version: ", AOGversion / 10)
-    if AOGversion < 57:
+    if AOGversion < 56:
         print("\nWARNING \nThis version of AgOpenGPS is not supported! Some features may not work as intended. "
-              "\nConsider upgrading to version 5.7 or newer." )
-UDPServerSocket.settimeout(1)
+              "\nConsider upgrading to version 5.7 or newer.")
+flush_socket()
+UDPServerSocket.settimeout(3)
 
 try:
     while True:
@@ -271,6 +287,7 @@ try:
             if AgIOSaysHello:
                 print("Connected to AgIO")
                 socket_timeout = False
+                flush_socket()
 
 
 except serial.serialutil.SerialException:

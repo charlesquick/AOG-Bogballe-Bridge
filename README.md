@@ -30,6 +30,8 @@ Note that the Bridge will only accept machine configurations with 2, 4 or 8 sect
 The script is now listening to all PGNs broadcast to port `8888` and is extracting speed and section data. This is converted into the Bogballe protocol and sent over the RS232 link.
 
 The COM port and machine data are saved in `config.ini`. To reset the program to defaults, open it in Notepad and set all the values to `0`
+The setting `CommsLostBehaviour`, when set to `0` will turn off spreading when communication with AgIO is lost (this is the default).
+To have the spreader continue as per its last instruction after losing communication, set this to `1`. This is useful in bad signal areas, where network changes can sometimes cause AgIO to lock up.
 
 ### AgOpenGPS Setup
 
