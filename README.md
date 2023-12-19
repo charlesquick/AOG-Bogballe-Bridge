@@ -3,10 +3,11 @@
 
 This script listens to the autoSteerData and machineData PGNs emitted by AgOpenGPS and sends them over RS232 using the [Bogballe serial protocol](https://dam.bogballe.com/dmm3bwsv3/AssetStream.aspx?mediaformatid=10061&destinationid=10016&assetid=3488)
 
+This should work with all 3 Bogballe spreader controllers: TOTZ, ZURF and UNIQ. If you have any compatibility issues, please let me know.
 
 ## Instructions for use
 
-You will need a USB -> RS232 adapter and null modem cable to connect to the port on TOTZ/ZURF.
+You will need a USB -> RS232 adapter and null modem cable to connect to the port on TOTZ/ZURF/UNIQ.
 
 Ensure your computer has python installed.
 
@@ -35,7 +36,7 @@ To have the spreader continue as per its last instruction after losing communica
 
 ### AgOpenGPS Setup
 
-Your implement in AgOpenGPS should be set to use 8 sections, however 2 or 4 section configurations are also supported. Sections must all be the same size.
+Your tool in AgOpenGPS should be set to use 8 sections, however 2 or 4 section configurations are also supported. Sections must all be the same size.
 
 Enable UDP in AgIO, and if you don't already have an ethernet-based autosteer system, see the section below.
 
@@ -63,7 +64,7 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 
 
-### TOTZ/ZURF Setup
+### TOTZ/ZURF/UNIQ Setup
 
 Under `menu/speed input`, set it to  `Serial / RS232 input`
 
@@ -76,4 +77,4 @@ There is always more to do, please feedback with any issues or requests.
 
 - Validation of CRC from AOG PGNs
 - Validation of acknowledgements from TOTZ
-- Implement variable rate control
+- Add variable rate control - wait for PGN structure to mature
