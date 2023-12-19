@@ -16,7 +16,7 @@ config.read('config.ini')
 sections = [0, 0, 0, 0, 0, 0, 0, 0]
 speed = 0.0
 secnum = config.getint('main', 'secnum')
-secwidth = config.getint('main', 'secwidth')
+secwidth = config.getfloat('main', 'secwidth')
 commsLostBehaviour = config.getint('main', 'CommsLostBehaviour')    # If true, stop spreader output on socket timeout
 activeSections = 0
 activeSectionsLast = 0
