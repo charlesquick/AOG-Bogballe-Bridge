@@ -26,9 +26,14 @@ portExists = False
 validConf = True
 AgIOSaysHello = False
 socket_timeout = False
+newDataFlag = False
 
 
 def extractdata(input):
+    global newDataFlag
+    if (input[3:4].hex()) == '64':
+        return
+
     if (input[3:4].hex()) == 'ef':  # Machine Data PGN
         sectBits = f'{int(input[11:12].hex(), 16):0>8b}'  # Byte 11, sections 1-8
         a = 7
@@ -38,6 +43,7 @@ def extractdata(input):
             sections[a] = i
             a -= 1
             activeSections += int(i)
+        newDataFlag = True
         return
 
     if (input[3:4].hex()) == 'fe':  # Steer data PGN for speed data
@@ -45,6 +51,7 @@ def extractdata(input):
                              byteorder='little', signed=False)
         global speed
         speed = round((spd * 0.1), 1)
+        newDataFlag = True
         return
 
     if (input[3:4].hex()) == 'eb':  # SectionDimensions PGN
@@ -70,12 +77,14 @@ def extractdata(input):
         config.set('main', 'secwidth', str(secwidth))
         with open('config.ini', 'w') as f:
             config.write(f)
+        newDataFlag = True
         return
 
     if (input[3:4].hex()) == 'c8':  # AgIO Hello PGN
         global AgIOSaysHello, AOGversion
         AOGversion = int(input[5:6].hex(), 16)
         AgIOSaysHello = True
+        newDataFlag = True
         return
 
 
@@ -208,8 +217,9 @@ def getUDPdata():
             activeSections = 0
         AgIOSaysHello = False
         socket_timeout = True
-        return
     extractdata(message)
+    return
+
 
 def flush_socket():
     UDPServerSocket.setblocking(False)
@@ -273,21 +283,23 @@ UDPServerSocket.settimeout(3)
 try:
     while True:
         getUDPdata()
-        sendspeed()
-        if validConf:
-            sendenable()
-            sendsections()
-        if socket_timeout:
-            print("Not connected to AgIO")
-            errmsg = "Lost Communication to AgIO!"
-            title = 'AOG-Bogballe Bridge'
-            ctypes.windll.user32.MessageBoxW(0, errmsg, title, 0x1000 | 0x30)
-            while not AgIOSaysHello:
-                getUDPdata()
-            if AgIOSaysHello:
-                print("Connected to AgIO")
-                socket_timeout = False
-                flush_socket()
+        if newDataFlag:
+            newDataFlag = False
+            sendspeed()
+            if validConf:
+                sendenable()
+                sendsections()
+            if socket_timeout:
+                print("Not connected to AgIO")
+                errmsg = "Lost Communication to AgIO!"
+                title = 'AOG-Bogballe Bridge'
+                ctypes.windll.user32.MessageBoxW(0, errmsg, title, 0x1000 | 0x30)
+                while not AgIOSaysHello:
+                    getUDPdata()
+                if AgIOSaysHello:
+                    print("Connected to AgIO")
+                    socket_timeout = False
+                    flush_socket()
 
 
 except serial.serialutil.SerialException:

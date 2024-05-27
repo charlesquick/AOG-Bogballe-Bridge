@@ -11,9 +11,10 @@ You will need a USB -> RS232 adapter and null modem cable to connect to the port
 
 Ensure your computer has python installed.
 
-This script uses the libraries `configparser` and `pyserial`. You may need to run `python -m pip install -r requirements.txt` in the command prompt.
+Run the `AgOpenGPS Bogballe Bridge.exe` file. 
 
-Run `main.py`. You will be presented with a warning that your COM port does not exist yet.
+If all goes well, it should install the dependencies, and you will be presented with a warning that your COM port does not exist yet.
+
 Click OK and you will see a list of available COM ports - type in the number of the port you would like to use.
 Typing `r` will update the list.
 
