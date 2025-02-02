@@ -54,7 +54,7 @@ If your guidance PC does not already have a network connection, then follow thes
 
 - Create a virtual loopback adapter as per [this guide](https://web.archive.org/web/20221114092633/https://consumer.huawei.com/en/support/content/en-us00693656/).
 
-If you have a USB cell modem, the new virtual interface will take priority, despite it being non-routable. To fix this,
+If you have a USB cell modem, the new virtual interface will take priority, despite it being non-routable. To fix this:
 
 - Open `regedit` and navigate to `HKEY_LOCAL_MACHINE\Software\Microsoft\Wcmsvc`
 
@@ -75,6 +75,15 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 That's it!
 
+## Building from Development folder
+
+- Using the bat2exe tool, select the Development folder
+
+- Select the output directory of your choice
+
+- It should auto-build all the files in Development into a self-contained exe file.
+
+- Please include an updated exe with your code if you make any pull requests.
 
 ## TODO
 This code was mostly re-written in January 2023 to be more reliable and universal.
