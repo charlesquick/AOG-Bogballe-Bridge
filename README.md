@@ -11,7 +11,7 @@ You will need a USB -> RS232 adapter and null modem cable to connect to the port
 
 Ensure your computer has python installed.
 
-Run the `AgOpenGPS Bogballe Bridge.exe` file. 
+Run the `AgOpenGPS Bogballe Bridge.exe` file.
 
 If all goes well, it should install the dependencies, and you will be presented with a warning that your COM port does not exist yet.
 
@@ -31,9 +31,11 @@ Note that the Bridge will only accept machine configurations with 2, 4 or 8 sect
 
 The script is now listening to all PGNs broadcast to port `8888` and is extracting speed and section data. This is converted into the Bogballe protocol and sent over the RS232 link.
 
-The COM port and machine data are saved in `config.ini`. To reset the program to defaults, open it in Notepad and set all the values to `0`
-The setting `CommsLostBehaviour`, when set to `0` will turn off spreading when communication with AgIO is lost (this is the default).
-To have the spreader continue as per its last instruction after losing communication, set this to `1`. This is useful in bad signal areas, where network changes can sometimes cause AgIO to lock up.
+The COM port and machine data are saved in `config.ini`. To reset the program to defaults, open it in Notepad and set all the values to `0`.
+
+The setting `CommsLostBehaviour`, when set to `0`, will turn off spreading if communication with AgIO is lost (this is the default).
+To have the spreader keep following its last instruction after losing communication, set this to `1`.
+This is useful in bad signal areas, where network changes can sometimes cause AgIO to lock up.
 
 ### AgOpenGPS Setup
 
@@ -50,7 +52,7 @@ The ZURF or TOTZ box will then calculate its own turn-on delay based on forward 
 
 If your guidance PC does not already have a network connection, then follow these steps to enable UDP comms:
 
-- Create a virtual loopback adapter as per [this guide](https://consumer.huawei.com/en/support/content/en-us00693656/).
+- Create a virtual loopback adapter as per [this guide](https://web.archive.org/web/20221114092633/https://consumer.huawei.com/en/support/content/en-us00693656/).
 
 If you have a USB cell modem, the new virtual interface will take priority, despite it being non-routable. To fix this,
 
@@ -67,7 +69,9 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 ### TOTZ/ZURF/UNIQ Setup
 
-Under `menu/speed input`, set it to  `Serial / RS232 input`
+- Go to `menu -> speed input`
+
+- Set it to  `Serial / RS232 input`
 
 That's it!
 
