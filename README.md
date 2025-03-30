@@ -69,6 +69,8 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 ### TOTZ/ZURF/UNIQ Setup
 
+- Make sure your Calibrator has been updated to the latest version. See [here](https://www.bogballe.com/fertiliser-spreaders/software/).
+
 - Go to `menu -> speed input`
 
 - Set it to  `Serial / RS232 input`
