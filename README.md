@@ -1,7 +1,7 @@
 # AOG Bogballe Bridge
 ## Section control for Bogballe spreaders
 
-This script listens to the autoSteerData and machineData PGNs emitted by AgOpenGPS and sends them over RS232 using the [Bogballe serial protocol](https://dam.bogballe.com/dmm3bwsv3/AssetStream.aspx?mediaformatid=10061&destinationid=10016&assetid=3488)
+The Bridge listens to the speed, section and machine configuration PGNs broadcast by AgOpenGPS, and sends them to the spreader over RS232 using the [Bogballe serial protocol](https://dam.bogballe.com/dmm3bwsv3/AssetStream.aspx?mediaformatid=10061&destinationid=10016&assetid=3488).
 
 This should work with all 3 Bogballe spreader controllers: TOTZ, ZURF and UNIQ. If you have any compatibility issues, please let me know.
 
@@ -9,37 +9,29 @@ This should work with all 3 Bogballe spreader controllers: TOTZ, ZURF and UNIQ. 
 
 You will need a USB -> RS232 adapter and null modem cable to connect to the port on TOTZ/ZURF/UNIQ.
 
-Ensure your computer has python installed.
+1. Download the latest `AOG-Bogballe-Bridge-vX.X.X-win-x64.zip` from the [Releases](https://github.com/charlesquick/AOG-Bogballe-Bridge/releases) page and extract it anywhere. There is nothing to install and .NET is bundled, so Python is no longer needed.
+2. Run `AOG-Bogballe-Bridge.exe`. Windows Firewall may ask you to allow it the first time it runs - allow it, as the Bridge listens for UDP on port `8888`.
+3. Select your COM port from the drop-down. Press **Refresh** if you plug the adapter in after starting the Bridge.
+4. Load your vehicle in AgOpenGPS. The width and section settings are sent automatically over the network to the Bridge and saved.
 
-Run the `AgOpenGPS Bogballe Bridge.exe` file.
-
-If all goes well, it should install the dependencies, and you will be presented with a warning that your COM port does not exist yet.
-
-Click OK and you will see a list of available COM ports - type in the number of the port you would like to use.
-Typing `r` will update the list.
-
-```
-Available COM ports:
-     COM2
-     COM16
-     COM24
-     COM25
-Please select COM number (0, 2, 15..), or r to refresh: 25
-```
-You will then need to load your vehicle in AgOpenGPS. The width and section settings will be sent automatically over the network to the Bridge and saved.
 Note that the Bridge will only accept machine configurations with 2, 4 or 8 sections. You will see a warning popup if your machine is not supported.
 
-The script is now listening to all PGNs broadcast to port `8888` and is extracting speed and section data. This is converted into the Bogballe protocol and sent over the RS232 link.
+The window shows:
 
-The COM port and machine data are saved in `config.ini`. To reset the program to defaults, open it in Notepad and set all the values to `0`.
+- **UDP** and **Serial** status lights - green when data is arriving from AgIO and the COM port is open
+- Live speed, rate and width, and the last PGN received
+- The machine configuration received from AgOpenGPS
+- The on/off state of each section
 
-The setting `CommsLostBehaviour`, when set to `0`, will turn off spreading if communication with AgIO is lost (this is the default).
-To have the spreader keep following its last instruction after losing communication, set this to `1`.
-This is useful in bad signal areas, where network changes can sometimes cause AgIO to lock up.
+The COM port and machine configuration are saved automatically in your Windows user profile, so there is no config file to edit.
+
+If communication with AgIO is lost for more than 1.5 seconds, the Bridge turns off spreading (speed 0, all sections off) until data returns.
 
 ### AgOpenGPS Setup
 
 Your tool in AgOpenGPS should be set to use 8 sections, however 2 or 4 section configurations are also supported. Sections must all be the same size.
+
+AgOpenGPS 5.7 or newer is required. You will see a warning if an older version is detected.
 
 Enable UDP in AgIO, and if you don't already have an ethernet-based autosteer system, see the section below.
 
@@ -50,9 +42,11 @@ The ZURF or TOTZ box will then calculate its own turn-on delay based on forward 
 
 ### Network Setup
 
-If your guidance PC does not already have a network connection, then follow these steps to enable UDP comms:
+AgIO broadcasts to the subnet set in its Ethernet settings (`192.168.5` by default). The guidance PC must have a network adapter with an address on that subnet, otherwise the broadcasts never reach the Bridge and the UDP light stays red.
 
-- Create a virtual loopback adapter as per [this guide](https://web.archive.org/web/20221114092633/https://consumer.huawei.com/en/support/content/en-us00693656/).
+If your guidance PC does not already have a network connection on that subnet, then follow these steps to enable UDP comms:
+
+- Create a virtual loopback adapter as per [this guide](https://web.archive.org/web/20221114092633/https://consumer.huawei.com/en/support/content/en-us00693656/), and give it a static address on the AgIO subnet (e.g. `192.168.5.10`, mask `255.255.255.0`).
 
 If you have a USB cell modem, the new virtual interface will take priority, despite it being non-routable. To fix this:
 
@@ -65,8 +59,6 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 - Create a new Dword `fMinimizeConnections`, set to `0`
 
 
-
-
 ### TOTZ/ZURF/UNIQ Setup
 
 - Make sure your Calibrator has been updated to the latest version. See [here](https://www.bogballe.com/fertiliser-spreaders/software/).
@@ -77,18 +69,32 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 That's it!
 
-## Building from Development folder
+## Troubleshooting
 
-- Using the bat2exe tool, select the Development folder
+- **UDP light red** - check AgIO is running and its subnet matches one of the PC's network adapters (see Network Setup).
+- **Serial light red** - check the adapter is plugged in, press **Refresh** and re-select the COM port. Make sure no other program has the port open.
+- **Sections not shown / "Unsupported" config** - set the tool in AgOpenGPS to 2, 4 or 8 equal sections and reload the vehicle.
 
-- Select the output directory of your choice
+## Building from source
 
-- It should auto-build all the files in Development into a self-contained exe file.
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) on Windows. Open `AOG-Bogballe-Bridge.slnx` in Visual Studio, or build from the command line:
 
-- Please include an updated exe with your code if you make any pull requests.
+```
+dotnet build AOG-Bogballe-Bridge.slnx -c Release
+```
+
+To produce the self-contained single-file exe used for releases:
+
+```
+dotnet publish AOG-Bogballe-Bridge/AOG-Bogballe-Bridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None
+```
+
+## Legacy Python version
+
+The original Python console script (`main.py`, `config.ini`, the `Development` folder and `AgOpenGPS Bogballe Bridge.exe`) is still in the repository for reference, but is no longer maintained. Please use the v2.0.0+ release instead.
 
 ## TODO
-This code was mostly re-written in January 2023 to be more reliable and universal.
+The Bridge was re-written as a native Windows app in 2026 (v2.0.0).
 There is always more to do, please feedback with any issues or requests.
 
 - Validation of CRC from AOG PGNs
