@@ -1,0 +1,35 @@
+name: Build and release
+
+on:
+  push:
+    tags: ["**"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish self-contained Windows app
+        run: dotnet publish AOG-Bogballe-Bridge/AOG-Bogballe-Bridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None
+
+      - name: Package release archive
+        shell: pwsh
+        run: |
+          $archive = "AOG-Bogballe-Bridge-${env:GITHUB_REF_NAME}-win-x64.zip"
+          Compress-Archive -Path 'AOG-Bogballe-Bridge/bin/Release/net10.0-windows/win-x64/publish/*' -DestinationPath $archive -Force
+          "RELEASE_ARCHIVE=$archive" >> $env:GITHUB_ENV
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ARCHIVE" --title "$env:GITHUB_REF_NAME" --generate-notes

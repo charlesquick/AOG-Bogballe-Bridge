@@ -1,8 +1,10 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Net;
@@ -12,6 +14,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 
 namespace AOGBogballeBridge
 {
@@ -21,6 +24,26 @@ namespace AOGBogballeBridge
 
         public ObservableCollection<string> AvailablePorts { get; }
         public ObservableCollection<Brush> Sections { get; }
+        public ObservableCollection<string> ShapefileFields { get; }
+
+        private IReadOnlyList<ShapefileFeature> _shapefileFeatures = Array.Empty<ShapefileFeature>();
+        private string? _selectedShapefileField;
+        private string _shapefileName = "No shapefile loaded";
+        private string _shapefileStatus = "Load an ESRI .shp file to preview its features.";
+        private bool _isShapefileGeographic;
+        private bool _shapefileLoaded;
+        private bool _isLoadingShapefile;
+        private bool _gpsConnected;
+        private bool _gpsPositionValid;
+        private double _gpsLatitude;
+        private double _gpsLongitude;
+        private int _gpsFixQuality;
+        private int _gpsSatellites;
+        private string _gpsStatus = "Waiting for PANDA data.";
+        private bool _rateZoneValid;
+        private string? _currentApplicationRate;
+        private string? _lastSentApplicationRate;
+        private bool _spreaderEnabledLast = true;
 
         private string? _selectedPort;
         private double _speed;
@@ -40,6 +63,7 @@ namespace AOGBogballeBridge
         private int _activeSectionsLast;
         private int _aogVersion;
         private bool _versionWarned;
+        private DateTime _lastGpsPacket;
 
         private UdpClient? _udp;
         private SerialPort? _serial;
@@ -47,6 +71,163 @@ namespace AOGBogballeBridge
         private readonly Dispatcher _dispatcher;
 
         public ICommand RefreshPortsCommand { get; }
+        public ICommand LoadShapefileCommand { get; }
+
+        public bool GpsConnected
+        {
+            get => _gpsConnected;
+            private set
+            {
+                _gpsConnected = value;
+                OnPropertyChanged(nameof(GpsConnected));
+            }
+        }
+
+        public bool ShapefileLoaded
+        {
+            get => _shapefileLoaded;
+            private set
+            {
+                _shapefileLoaded = value;
+                OnPropertyChanged(nameof(ShapefileLoaded));
+            }
+        }
+
+        public bool GpsPositionValid
+        {
+            get => _gpsPositionValid;
+            private set
+            {
+                _gpsPositionValid = value;
+                OnPropertyChanged(nameof(GpsPositionValid));
+                OnPropertyChanged(nameof(GpsCoordinateText));
+            }
+        }
+
+        public double GpsLatitude
+        {
+            get => _gpsLatitude;
+            private set
+            {
+                _gpsLatitude = value;
+                OnPropertyChanged(nameof(GpsLatitude));
+                OnPropertyChanged(nameof(GpsCoordinateText));
+            }
+        }
+
+        public double GpsLongitude
+        {
+            get => _gpsLongitude;
+            private set
+            {
+                _gpsLongitude = value;
+                OnPropertyChanged(nameof(GpsLongitude));
+                OnPropertyChanged(nameof(GpsCoordinateText));
+            }
+        }
+
+        public string GpsCoordinateText => GpsPositionValid
+            ? $"Lat: {GpsLatitude:F6}   Lon: {GpsLongitude:F6}"
+            : "Position unavailable";
+
+        public int GpsFixQuality
+        {
+            get => _gpsFixQuality;
+            private set
+            {
+                _gpsFixQuality = value;
+                OnPropertyChanged(nameof(GpsFixQuality));
+            }
+        }
+
+        public int GpsSatellites
+        {
+            get => _gpsSatellites;
+            private set
+            {
+                _gpsSatellites = value;
+                OnPropertyChanged(nameof(GpsSatellites));
+            }
+        }
+
+        public string GpsStatus
+        {
+            get => _gpsStatus;
+            private set
+            {
+                _gpsStatus = value;
+                OnPropertyChanged(nameof(GpsStatus));
+            }
+        }
+
+        public IReadOnlyList<ShapefileFeature> ShapefileFeatures
+        {
+            get => _shapefileFeatures;
+            private set
+            {
+                _shapefileFeatures = value;
+                OnPropertyChanged(nameof(ShapefileFeatures));
+            }
+        }
+
+        public bool IsShapefileGeographic
+        {
+            get => _isShapefileGeographic;
+            private set
+            {
+                _isShapefileGeographic = value;
+                OnPropertyChanged(nameof(IsShapefileGeographic));
+            }
+        }
+
+        public string? SelectedShapefileField
+        {
+            get => _selectedShapefileField;
+            set
+            {
+                _selectedShapefileField = value;
+                OnPropertyChanged(nameof(SelectedShapefileField));
+                if (!_isLoadingShapefile)
+                    UpdateApplicationRate();
+            }
+        }
+
+        public string CurrentApplicationRate
+        {
+            get => !ShapefileLoaded
+                ? "Shapefile rate control off; using normal spreader control."
+                : _currentApplicationRate == null ? "No rate selected" : $"Application rate: {_currentApplicationRate}";
+            private set
+            {
+                _currentApplicationRate = value;
+                OnPropertyChanged(nameof(CurrentApplicationRate));
+                OnPropertyChanged(nameof(TargetApplicationRateDisplay));
+            }
+        }
+
+        public string TargetApplicationRateDisplay => !ShapefileLoaded
+            ? "Off"
+            : _currentApplicationRate ?? "—";
+
+        public string ShapefileName
+        {
+            get => _shapefileName;
+            private set
+            {
+                _shapefileName = value;
+                OnPropertyChanged(nameof(ShapefileName));
+            }
+        }
+
+        public string ShapefileStatus
+        {
+            get => _shapefileStatus;
+            private set
+            {
+                _shapefileStatus = value;
+                OnPropertyChanged(nameof(ShapefileStatus));
+            }
+        }
 
         public string? SelectedPort
         {
@@ -142,6 +323,7 @@ namespace AOGBogballeBridge
 
             AvailablePorts = new ObservableCollection<string>(SerialPort.GetPortNames());
             Sections = new ObservableCollection<Brush>();
+            ShapefileFields = new ObservableCollection<string>();
 
             for (int i = 0; i < 8; i++)
                 Sections.Add(Brushes.Gray);
@@ -164,6 +346,7 @@ namespace AOGBogballeBridge
 
             // Setup refresh command
             RefreshPortsCommand = new RelayCommand(RefreshPorts);
+            LoadShapefileCommand = new RelayCommand(LoadShapefile);
 
             StartUdp();
 
@@ -174,6 +357,53 @@ namespace AOGBogballeBridge
 
             _statusTimer.Tick += StatusTimer_Tick;
             _statusTimer.Start();
+        }
+
+        private void LoadShapefile()
+        {
+            OpenFileDialog dialog = new OpenFileDialog
+            {
+                Title = "Open shapefile",
+                Filter = "ESRI Shapefile (*.shp)|*.shp",
+                CheckFileExists = true
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            try
+            {
+                ShapefileData data = ShapefileReader.Read(dialog.FileName);
+                _isLoadingShapefile = true;
+                ShapefileFeatures = data.Features;
+                IsShapefileGeographic = data.IsGeographic;
+                ShapefileFields.Clear();
+                foreach (string field in data.Fields)
+                    ShapefileFields.Add(field);
+
+                SelectedShapefileField = data.Fields.FirstOrDefault(field =>
+                    data.Features.Any(feature =>
+                        feature.Attributes.TryGetValue(field, out string? value) &&
+                        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)));
+                ShapefileName = System.IO.Path.GetFileName(dialog.FileName);
+                ShapefileLoaded = true;
+                string fieldStatus = data.Fields.Count == 0
+                    ? $"{data.Features.Count} features loaded. No matching .dbf file found."
+                    : $"{data.Features.Count} features loaded; {data.Fields.Count} DBF fields available.";
+                ShapefileStatus = $"{fieldStatus} {data.ProjectionSummary}";
+                _isLoadingShapefile = false;
+                UpdateApplicationRate();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _isLoadingShapefile = false;
+                ShapefileStatus = $"Could not load shapefile: {ex.Message}";
+                MessageBox.Show(
+                    ShapefileStatus,
+                    "AOG Bogballe Bridge",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void RefreshPorts()
@@ -201,6 +431,14 @@ namespace AOGBogballeBridge
         private void StatusTimer_Tick(object? sender, EventArgs e)
         {
             bool connected = (DateTime.Now - _lastUdp).TotalSeconds < 1.5;
+            bool gpsConnected = _lastGpsPacket != default && (DateTime.UtcNow - _lastGpsPacket).TotalSeconds < 3;
+            if (GpsConnected && !gpsConnected)
+            {
+                GpsPositionValid = false;
+                GpsStatus = "PANDA data timed out.";
+                UpdateApplicationRate();
+            }
+            GpsConnected = gpsConnected;
 
             // Comms lost: stop spreading rather than holding the last command
             // (matches the Python default CommsLostBehaviour = 0)
@@ -215,6 +453,78 @@ namespace AOGBogballeBridge
             }
 
             UdpConnected = connected;
+        }
+
+        private void ParseGpsPacket(string packet)
+        {
+            string line = packet.Trim();
+            if (!line.StartsWith("$PANDA,", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _lastGpsPacket = DateTime.UtcNow;
+            GpsConnected = true;
+
+            string[] fields = line.Split(',');
+            if (fields.Length < 16 || !int.TryParse(fields[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out int fixQuality) ||
+                fixQuality is < 0 or > 8)
+            {
+                GpsPositionValid = false;
+                GpsStatus = "Invalid PANDA packet: missing or invalid fix quality.";
+                Debug.WriteLine($"Invalid PANDA packet: {line}");
+                UpdateApplicationRate();
+                return;
+            }
+
+            GpsFixQuality = fixQuality;
+            if (fixQuality == 0)
+            {
+                GpsPositionValid = false;
+                GpsStatus = "PANDA reports no GPS fix.";
+                UpdateApplicationRate();
+                return;
+            }
+
+            if (!TryParseNmeaCoordinate(fields[2], fields[3], isLatitude: true, out double latitude) ||
+                !TryParseNmeaCoordinate(fields[4], fields[5], isLatitude: false, out double longitude))
+            {
+                GpsPositionValid = false;
+                GpsStatus = "Invalid PANDA packet: latitude or longitude is malformed.";
+                Debug.WriteLine($"Invalid PANDA coordinates: {line}");
+                UpdateApplicationRate();
+                return;
+            }
+
+            GpsLatitude = latitude;
+            GpsLongitude = longitude;
+            GpsSatellites = int.TryParse(fields[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out int satellites)
+                ? Math.Max(0, satellites)
+                : 0;
+            GpsPositionValid = true;
+            GpsStatus = $"Fix quality {fixQuality}; {GpsSatellites} satellites.";
+            UpdateApplicationRate();
+        }
+
+        private static bool TryParseNmeaCoordinate(string coordinate, string hemisphere, bool isLatitude, out double decimalDegrees)
+        {
+            decimalDegrees = 0;
+            if (!double.TryParse(coordinate, NumberStyles.Float, CultureInfo.InvariantCulture, out double nmeaValue) ||
+                !double.IsFinite(nmeaValue) || nmeaValue < 0)
+                return false;
+
+            string direction = hemisphere.Trim().ToUpperInvariant();
+            if (isLatitude ? direction is not ("N" or "S") : direction is not ("E" or "W"))
+                return false;
+
+            double degrees = Math.Floor(nmeaValue / 100);
+            double minutes = nmeaValue - degrees * 100;
+            double maximumDegrees = isLatitude ? 90 : 180;
+            if (minutes >= 60 || degrees > maximumDegrees || (degrees == maximumDegrees && minutes > 0))
+                return false;
+
+            decimalDegrees = degrees + minutes / 60;
+            if (direction is "S" or "W")
+                decimalDegrees = -decimalDegrees;
+            return true;
         }
 
         private void StartUdp()
@@ -257,8 +567,6 @@ namespace AOGBogballeBridge
             try
             {
                 byte[] data = _udp!.EndReceive(ar, ref ep);
-                _lastUdp = DateTime.Now;
-
                 // Parse on UI thread to ensure property updates work
                 _dispatcher.BeginInvoke(new Action(() => ParseAogPacket(data)));
             }
@@ -274,14 +582,30 @@ namespace AOGBogballeBridge
 
         private void ParseAogPacket(byte[] data)
         {
-            if (data == null || data.Length < 6)
+            if (data == null || data.Length == 0)
+                return;
+
+            string textPacket = Encoding.ASCII.GetString(data).Trim();
+            if (textPacket.StartsWith("$PANDA,", StringComparison.OrdinalIgnoreCase))
+            {
+                ParseGpsPacket(textPacket);
+                return;
+            }
+
+            _lastUdp = DateTime.Now;
+            if (data.Length < 6)
                 return;
 
             byte pgn = data[3];
             LastPgn = $"0x{pgn:X2}";
 
+            // GPS output PGN: longitude and latitude as little-endian doubles.
+            if (pgn == 0x64)
+            {
+                ParseGpsOutPacket(data);
+            }
             // Speed PGN (Steer data - same as Python)
-            if (pgn == 0xFE)
+            else if (pgn == 0xFE)
             {
                 if (data.Length < 7)
                     return;
@@ -369,6 +693,110 @@ namespace AOGBogballeBridge
             }
         }
 
+        private void ParseGpsOutPacket(byte[] data)
+        {
+            _lastGpsPacket = DateTime.UtcNow;
+            GpsConnected = true;
+
+            int payloadLength = data[4];
+            if (payloadLength is not (16 or 24) || data.Length != payloadLength + 6)
+            {
+                GpsPositionValid = false;
+                GpsStatus = "Invalid GPSOut packet length.";
+                Debug.WriteLine($"Invalid GPSOut packet length: {data.Length} bytes, payload {payloadLength} bytes.");
+                UpdateApplicationRate();
+                return;
+            }
+
+            double longitude = ReadLittleEndianDouble(data, 5);
+            double latitude = ReadLittleEndianDouble(data, 13);
+            if (!double.IsFinite(longitude) || longitude is < -180 or > 180 ||
+                !double.IsFinite(latitude) || latitude is < -90 or > 90)
+            {
+                GpsPositionValid = false;
+                GpsStatus = "Invalid GPSOut coordinates.";
+                Debug.WriteLine($"GPSOut coordinates out of range: longitude {longitude}, latitude {latitude}.");
+                UpdateApplicationRate();
+                return;
+            }
+
+            GpsLongitude = longitude;
+            GpsLatitude = latitude;
+            GpsPositionValid = true;
+            UpdateApplicationRate();
+            GpsStatus = "GPS position received";
+        }
+
+        private void UpdateApplicationRate()
+        {
+            if (!ShapefileLoaded)
+            {
+                _rateZoneValid = false;
+                CurrentApplicationRate = "Shapefile rate control off; using normal spreader control.";
+                return;
+            }
+
+            string? rateText = null;
+            string status;
+
+            if (!GpsPositionValid)
+            {
+                status = "No valid GPS fix; spreading disabled.";
+            }
+            else if (!IsShapefileGeographic)
+            {
+                status = "Rate lookup requires a geographic shapefile; spreading disabled.";
+            }
+            else if (string.IsNullOrWhiteSpace(SelectedShapefileField))
+            {
+                status = "Select a DBF rate field; spreading disabled.";
+            }
+            else
+            {
+                Point position = new(GpsLongitude, GpsLatitude);
+                ShapefileFeature? matchingFeature = ShapefileFeatures.FirstOrDefault(feature => feature.Contains(position));
+                if (matchingFeature == null)
+                {
+                    status = "Outside rate polygons; spreading disabled.";
+                }
+                else if (!matchingFeature.Attributes.TryGetValue(SelectedShapefileField, out string? candidate) ||
+                         !double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out double numericRate) ||
+                         !double.IsFinite(numericRate) || numericRate < 0)
+                {
+                    status = $"Rate field '{SelectedShapefileField}' is missing or invalid; spreading disabled.";
+                }
+                else
+                {
+                    rateText = candidate.Trim();
+                    status = $"Inside rate polygon; application rate {rateText}.";
+                }
+            }
+
+            bool rateValid = rateText != null;
+            bool rateChanged = !string.Equals(_currentApplicationRate, rateText, StringComparison.Ordinal);
+            _rateZoneValid = rateValid;
+            CurrentApplicationRate = rateText ?? status;
+            GpsStatus = status;
+
+            if (rateValid)
+            {
+                if (rateChanged || _lastSentApplicationRate == null)
+                {
+                    SendToSpreader($"S:AppRat:{rateText}:C");
+                    _lastSentApplicationRate = rateText;
+                }
+            }
+            else
+            {
+                _lastSentApplicationRate = null;
+            }
+
+            SendEnable();
+        }
+
+        private static double ReadLittleEndianDouble(byte[] data, int offset) =>
+            BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(data.AsSpan(offset, sizeof(double))));
+
         private void ApplyConfig(bool showWarning)
         {
             // Bogballe control supports 2, 4 or 8 sections (expanded to 8 below)
@@ -443,9 +871,12 @@ namespace AOGBogballeBridge
                 _serial = new SerialPort(SelectedPort, 9600) { WriteTimeout = 500 };
                 _serial.Open();
                 SerialConnected = true;
+                _lastSentApplicationRate = null;
 
                 // Force enable/width to be resent to the (re)connected spreader
                 _activeSectionsLast = -1;
+                _spreaderEnabledLast = !_rateZoneValid;
+                UpdateApplicationRate();
             }
             catch
             {
@@ -507,19 +938,19 @@ namespace AOGBogballeBridge
 
         private void SendEnable()
         {
-            if (!_validConfig)
-                return;
-
-            // Only send the enable command when the active section count changes
-            int activeSections = CountActiveSections();
-            if (activeSections == _activeSectionsLast)
+            int activeSections = _validConfig ? CountActiveSections() : 0;
+            bool rateAllowsSpreading = !ShapefileLoaded || _rateZoneValid;
+            bool shouldEnable = _validConfig && rateAllowsSpreading && activeSections > 0;
+            if (activeSections == _activeSectionsLast && shouldEnable == _spreaderEnabledLast)
                 return;
 
             _activeSectionsLast = activeSections;
+            _spreaderEnabledLast = shouldEnable;
 
             // Format: {S:SOrlSE:1:checksum} (1 = spreading enabled, 0 = disabled)
-            SendToSpreader(activeSections > 0 ? "S:SOrlSE:1:" : "S:SOrlSE:0:");
-            SendActiveWidth();
+            SendToSpreader(shouldEnable ? "S:SOrlSE:1:" : "S:SOrlSE:0:");
+            if (_validConfig)
+                SendActiveWidth();
         }
 
         private void SendActiveWidth()
@@ -570,7 +1001,6 @@ namespace AOGBogballeBridge
             _execute = execute ?? throw new ArgumentNullException(nameof(execute));
             _canExecute = canExecute;
         }
-
         public event EventHandler? CanExecuteChanged
         {
             add { CommandManager.RequerySuggested += value; }
