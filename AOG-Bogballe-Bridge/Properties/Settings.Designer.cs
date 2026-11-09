@@ -58,5 +58,17 @@ namespace AOGBogballeBridge.Properties {
                 this["SecWidth"] = value;
             }
         }
+
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool WorkSwitchEnabled {
+            get {
+                return ((bool)(this["WorkSwitchEnabled"]));
+            }
+            set {
+                this["WorkSwitchEnabled"] = value;
+            }
+        }
     }
 }

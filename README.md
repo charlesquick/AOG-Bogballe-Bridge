@@ -69,6 +69,21 @@ If you have a USB cell modem, the new virtual interface will take priority, desp
 
 That's it!
 
+## Work switch (optional)
+
+The Start/Stop button on the TOTZ/ZURF/UNIQ control box can act as a work switch for AgOpenGPS. Tick **Use spreader Start/Stop button as AgOpenGPS work switch** in the Bridge window. The setting is remembered.
+
+The Bridge polls the controller's spreading status (`{R:SprSta:C}`) twice a second:
+
+- **Stop** pressed on the box: AgOpenGPS's master section control (Auto) is switched **off**.
+- **Start** pressed on the box: master section control is switched back to **Auto**.
+
+The Bridge already starts and stops the spreader itself as AgOpenGPS turns sections on and off, e.g. at headlands. Only changes that disagree with what the Bridge last commanded are passed on, so headland stops do not switch AgOpenGPS off.
+
+The switch is sent to AgOpenGPS the same way as a remote section switch box (PGN 234), so no Work Switch settings are needed in AgOpenGPS, and a field must be open for it to take effect. It does not use the AgOpenGPS Work Switch input on the AutoSteer module, so an AutoSteer system is not affected.
+
+The **Spreader** line under the checkbox shows the status reported by the controller: Spreading, Stopped, or No response from spreader.
+
 ## Troubleshooting
 
 - **UDP light red** - check AgIO is running and its subnet matches one of the PC's network adapters (see Network Setup).

@@ -41,6 +41,17 @@ namespace AOGBogballeBridge
         private int _aogVersion;
         private bool _versionWarned;
 
+        // Work switch: spreader Start/Stop state ({R:SprSta:C}) forwarded to the
+        // AgOpenGPS master section button as a remote switch (PGN 234)
+        private bool _workSwitchEnabled;
+        private bool? _spreaderActive;          // null = unknown / no response
+        private DateTime _lastSprSta;
+        private bool _commandedSpreading;       // last SOrlSE command sent by the Bridge
+        private bool _workSwitchReleasePending;
+        private string _spreaderStatusText = "";
+        private IPEndPoint? _agioEndpoint;
+        private readonly List<byte> _serialRx = new List<byte>();
+
         private UdpClient? _udp;
         private SerialPort? _serial;
         private readonly DispatcherTimer _statusTimer;
@@ -133,6 +144,32 @@ namespace AOGBogballeBridge
             }
         }
 
+        public bool WorkSwitchEnabled
+        {
+            get => _workSwitchEnabled;
+            set
+            {
+                _workSwitchEnabled = value;
+                Properties.Settings.Default.WorkSwitchEnabled = value;
+                Properties.Settings.Default.Save();
+
+                _spreaderActive = null;
+                _workSwitchReleasePending = false;
+                SpreaderStatusText = value ? "Waiting for spreader..." : "Disabled";
+                OnPropertyChanged(nameof(WorkSwitchEnabled));
+            }
+        }
+
+        public string SpreaderStatusText
+        {
+            get => _spreaderStatusText;
+            set
+            {
+                _spreaderStatusText = value;
+                OnPropertyChanged(nameof(SpreaderStatusText));
+            }
+        }
+
         public Brush UdpBrush => UdpConnected ? Brushes.LimeGreen : Brushes.Red;
         public Brush SerialBrush => SerialConnected ? Brushes.LimeGreen : Brushes.Red;
 
@@ -158,6 +195,8 @@ namespace AOGBogballeBridge
             _secNum = Properties.Settings.Default.SecNum;
             _secWidth = Properties.Settings.Default.SecWidth;
             ApplyConfig(showWarning: false);
+
+            WorkSwitchEnabled = Properties.Settings.Default.WorkSwitchEnabled;
 
             // Load persisted COM port
             SelectedPort = Properties.Settings.Default.ComPort;
@@ -215,6 +254,8 @@ namespace AOGBogballeBridge
             }
 
             UdpConnected = connected;
+
+            PollSpreaderStatus();
         }
 
         private void StartUdp()
@@ -258,6 +299,11 @@ namespace AOGBogballeBridge
             {
                 byte[] data = _udp!.EndReceive(ar, ref ep);
                 _lastUdp = DateTime.Now;
+
+                // Remember where AgIO sends from (source 0x7F, port 9999) so
+                // work switch packets can be returned to it like a module would
+                if (data.Length > 2 && data[0] == 0x80 && data[1] == 0x81 && data[2] == 0x7F)
+                    _agioEndpoint = ep;
 
                 // Parse on UI thread to ensure property updates work
                 _dispatcher.BeginInvoke(new Action(() => ParseAogPacket(data)));
@@ -441,7 +487,9 @@ namespace AOGBogballeBridge
 
                 // Write timeout stops a stalled adapter from freezing the UI thread
                 _serial = new SerialPort(SelectedPort, 9600) { WriteTimeout = 500 };
+                _serial.DataReceived += Serial_DataReceived;
                 _serial.Open();
+                _serialRx.Clear();
                 SerialConnected = true;
 
                 // Force enable/width to be resent to the (re)connected spreader
@@ -516,6 +564,7 @@ namespace AOGBogballeBridge
                 return;
 
             _activeSectionsLast = activeSections;
+            _commandedSpreading = activeSections > 0;
 
             // Format: {S:SOrlSE:1:checksum} (1 = spreading enabled, 0 = disabled)
             SendToSpreader(activeSections > 0 ? "S:SOrlSE:1:" : "S:SOrlSE:0:");
@@ -536,6 +585,163 @@ namespace AOGBogballeBridge
             // original Python implementation where this write was disabled.
             double totalWidth = Math.Round(_secWidth * _secNum / 100.0, 1);
             Debug.WriteLine($"Total spread width: {{S:SprdWt:{totalWidth.ToString("F1", CultureInfo.InvariantCulture)}}} (not transmitted)");
+        }
+
+        private void PollSpreaderStatus()
+        {
+            if (!_workSwitchEnabled)
+                return;
+
+            // Release the remote switch "button" pressed on the previous tick
+            if (_workSwitchReleasePending)
+            {
+                _workSwitchReleasePending = false;
+                SendRemoteSwitch(0x00);
+            }
+
+            if (_spreaderActive != null && (DateTime.Now - _lastSprSta).TotalSeconds > 2)
+            {
+                _spreaderActive = null;
+                SpreaderStatusText = "No response from spreader";
+            }
+
+            // Format: {R:SprSta:checksum}, answered with {W:SprSta:<active>:<trend>:checksum}
+            SendToSpreader("R:SprSta:");
+        }
+
+        private void Serial_DataReceived(object sender, SerialDataReceivedEventArgs e)
+        {
+            var port = (SerialPort)sender;
+
+            try
+            {
+                byte[] buffer = new byte[port.BytesToRead];
+                int count = port.Read(buffer, 0, buffer.Length);
+
+                // Parse on UI thread, alongside the UDP handling
+                _dispatcher.BeginInvoke(new Action(() => ProcessSerialBytes(port, buffer, count)));
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ERROR reading serial: {ex.Message}");
+            }
+        }
+
+        private void ProcessSerialBytes(SerialPort port, byte[] buffer, int count)
+        {
+            // Ignore data from a port that has since been replaced
+            if (!ReferenceEquals(port, _serial))
+                return;
+
+            for (int i = 0; i < count; i++)
+                _serialRx.Add(buffer[i]);
+
+            // Extract complete telegrams: {payload checksum}
+            while (true)
+            {
+                int start = _serialRx.IndexOf((byte)'{');
+                if (start < 0)
+                {
+                    _serialRx.Clear();
+                    return;
+                }
+
+                int end = _serialRx.IndexOf((byte)'}', start + 1);
+                if (end < 0)
+                {
+                    _serialRx.RemoveRange(0, start);
+                    if (_serialRx.Count > 256)
+                        _serialRx.Clear(); // runaway garbage, resync
+                    return;
+                }
+
+                // A '{' inside the frame means the earlier telegram was cut short
+                int restart = _serialRx.IndexOf((byte)'{', start + 1, end - start - 1);
+                if (restart >= 0)
+                {
+                    _serialRx.RemoveRange(0, restart);
+                    continue;
+                }
+
+                if (end - start >= 2)
+                {
+                    string payload = Encoding.ASCII.GetString(_serialRx.GetRange(start + 1, end - start - 2).ToArray());
+                    char checksum = (char)_serialRx[end - 1];
+
+                    if (CalculateAsciiChecksum(payload)[0] == checksum)
+                        HandleSpreaderTelegram(payload);
+                    else
+                        Debug.WriteLine($"Bad checksum from spreader: {payload}");
+                }
+
+                _serialRx.RemoveRange(0, end + 1);
+            }
+        }
+
+        private void HandleSpreaderTelegram(string payload)
+        {
+            // {W:SprSta:<SpreaderActive>:<TrendPosition>:C}
+            // SpreaderActive: 0 = not spreading, 1 = spreading
+            if (!payload.StartsWith("W:SprSta:", StringComparison.Ordinal))
+                return;
+
+            string[] fields = payload.Split(':');
+            if (fields.Length < 3 || (fields[2] != "0" && fields[2] != "1"))
+                return;
+
+            UpdateSpreaderActive(fields[2] == "1");
+        }
+
+        private void UpdateSpreaderActive(bool active)
+        {
+            _lastSprSta = DateTime.Now;
+            bool? previous = _spreaderActive;
+            _spreaderActive = active;
+            SpreaderStatusText = active ? "Spreading" : "Stopped";
+
+            if (!_workSwitchEnabled || previous == null || previous == active || !UdpConnected)
+                return;
+
+            // The Bridge starts/stops the spreader itself (SOrlSE) as AgOpenGPS
+            // switches sections, e.g. at headlands. Only forward changes that
+            // disagree with that command - those came from the operator pressing
+            // Start/Stop on the control box. Forwarding our own stops would
+            // switch AgOpenGPS off at every headland.
+            if (active == _commandedSpreading)
+                return;
+
+            Debug.WriteLine($"Spreader {(active ? "started" : "stopped")} by operator - sending work switch {(active ? "ON" : "OFF")}");
+            SendRemoteSwitch(active ? (byte)0x01 : (byte)0x02);
+            _workSwitchReleasePending = true;
+        }
+
+        private void SendRemoteSwitch(byte main)
+        {
+            // PGN 234 (0xEA) remote section switches, as sent by a switch box module.
+            // AgIO forwards it to AgOpenGPS. Main byte, button mode (bit 2 clear):
+            // bit 0 = master Auto ON, bit 1 = master OFF; AgOpenGPS acts when the
+            // byte changes, so each press is followed by a release (0x00).
+            // All section bytes are 0 so individual sections are left alone.
+            IPEndPoint? agio = _agioEndpoint;
+            if (_udp == null || agio == null)
+                return;
+
+            byte[] pgn = { 0x80, 0x81, 0x7B, 0xEA, 8, main, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+            byte crc = 0;
+            for (int i = 2; i < pgn.Length - 1; i++)
+                crc += pgn[i];
+            pgn[pgn.Length - 1] = crc;
+
+            try
+            {
+                _udp.Send(pgn, pgn.Length, agio);
+                Debug.WriteLine($"Sent PGN 234 main=0x{main:X2} to {agio}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ERROR sending PGN 234: {ex.Message}");
+            }
         }
 
         private string CalculateAsciiChecksum(string data)
